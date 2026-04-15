@@ -13,22 +13,13 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制前端依赖文件
-COPY frontend/package*.json ./
-
-# 安装前端依赖（使用完整安装，包括devDependencies）
-RUN npm ci
-
-# 复制前端源代码
+# 复制前端源代码并构建（合并为单步避免Windows node_modules污染）
 COPY frontend/ ./
-
-# 构建前端
-RUN npm run build
+RUN rm -rf node_modules && npm install && npm run build
 
 # 第二阶段：构建后端
 FROM python:3.9-slim AS backend-builder
 
-# 设置环境变量
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PIP_NO_CACHE_DIR=1
@@ -36,23 +27,18 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
-# 安装系统依赖
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制Python依赖文件
 COPY requirements.txt ./
-
-# 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 第三阶段：最终镜像
 FROM python:3.9-slim
 
-# 设置环境变量
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONPATH=/app
@@ -67,7 +53,6 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# 设置工作目录
 WORKDIR /app
 
 # 从构建阶段复制文件
@@ -85,22 +70,19 @@ COPY docker-entrypoint.sh ./
 # 创建必要的目录
 RUN mkdir -p data/projects data/uploads data/temp data/output logs
 
-# 设置权限
+# 修复Windows CRLF换行符并设置权限
+RUN find /app -name "*.sh" -exec sed -i 's/\r$//' {} \;
 RUN chown -R autoclip:autoclip /app
-RUN chmod +x *.sh
-RUN chmod +x docker-entrypoint.sh
+RUN chmod +x *.sh docker-entrypoint.sh
 RUN chmod -R 755 data logs
 
 # 切换到非root用户
 USER autoclip
 
-# 暴露端口
 EXPOSE 8000 3000
 
-# 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/v1/health/ || exit 1
 
-# 启动命令
-ENTRYPOINT ["./docker-entrypoint.sh"]
+ENTRYPOINT ["/bin/bash", "/app/docker-entrypoint.sh"]
 CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

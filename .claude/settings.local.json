@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker-compose down)",
+      "Bash(docker-compose build --no-cache)",
+      "Bash(docker-compose up --build --force-recreate)"
+    ]
+  }
+}
